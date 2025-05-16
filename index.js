@@ -1,0 +1,497 @@
+const express = require('express');
+const cors = require('cors');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.json());
+
+
+
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.yhwb0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+
+// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
+});
+
+async function run() {
+  try {
+    // Connect the client to the server	(optional starting in v4.7)
+    await client.connect();
+
+    // code starts here
+
+    const database = client.db('pet-haven');
+    const petlistCollection = database.collection('pet-list');
+    const adoptCollection = database.collection('adopt');
+    const donationcampaignsCollection = database.collection('donationcampaigns');
+    const donationCollection = database.collection('donation');
+    const userCollection = database.collection('user');
+
+    app.get('/pet-list', async (req, res) => {
+      try {
+        const petlist = await petlistCollection.find().toArray();
+
+        res.send(petlist);
+      }
+      catch (error) {
+        res.status(500).send({ message: "Error fetching petlist" });
+      }
+    });
+
+    app.get('/pet-list/:id', async (req, res) => {
+
+      const { id } = req.params;
+      try {
+        const pet = await petlistCollection.findOne({ _id: new ObjectId(id) });
+        res.send(pet);
+      } catch (error) {
+        console.error('Error fetching pet by ID:', error);
+        res.status(500).send({ message: "Error fetching petlist" });
+      }
+    });
+
+
+    app.get('/pet-list-email', async (req, res) => {
+      const email = req.query.email;
+
+
+      if (!email || email === 'undefined') {
+        return res.status(400).send({ error: 'Valid email is required' });
+      }
+
+      try {
+        const pets = await petlistCollection.find({ userEmail: email }).toArray();
+        res.send(pets);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to fetch pets' });
+      }
+    });
+
+
+
+    app.post('/adopt', async (req, res) => {
+      const data = req.body;
+      const result = await adoptCollection.insertOne(data);
+      res.send(result);
+    });
+
+
+    app.post('/pet-list', async (req, res) => {
+      try {
+        const petData = req.body;
+        const result = await petlistCollection.insertOne(petData);
+
+        res.status(201).send({
+          message: "Pet added successfully",
+          insertedId: result.insertedId
+        });
+      } catch (error) {
+        console.error("Error adding pet:", error);
+        res.status(500).send({ message: "Failed to add pet" });
+      }
+    });
+
+
+
+    app.patch('/pet-list/:id', async (req, res) => {
+      const { id } = req.params;
+      const updatedData = { ...req.body };
+
+
+      delete updatedData._id;
+
+      try {
+        const result = await petlistCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: 'Pet not found' });
+        }
+
+        res.json({ message: 'Pet updated successfully' });
+      } catch (error) {
+        console.error('Error updating pet:', error);
+        res.status(500).json({ message: 'Internal server error' });
+      }
+    });
+    // get all pets for admin
+    app.get('/petlist', async (req, res) => {
+      try {
+        const pets = await petlistCollection.find().toArray();
+        res.send(pets);
+      } catch (err) {
+        res.status(500).send({ message: 'Failed to fetch pets' });
+      }
+    });
+
+    app.delete('/petlist/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await petlistCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: 'Failed to delete pet' });
+      }
+    });
+
+    app.patch('/petlist/:id', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updateFields = req.body;
+
+        const result = await petlistCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateFields }
+        );
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: 'Failed to update pet' });
+      }
+    });
+
+
+
+
+
+
+    // DELETE: Remove a pet by ID
+    app.delete('/pet-list/:id', async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const result = await petlistCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Pet not found or already deleted' });
+        }
+
+        res.send({ message: 'Pet deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting pet:', error);
+        res.status(500).send({ message: 'Failed to delete pet' });
+      }
+    });
+
+
+
+    app.post('/donation-campaign', async (req, res) => {
+      try {
+        const campaign = req.body;
+        campaign.createdAt = new Date();
+        const result = await donationcampaignsCollection.insertOne(campaign);
+        res.status(201).send({ message: 'Donation campaign created', insertedId: result.insertedId });
+      } catch (error) {
+        console.error('Error creating campaign:', error);
+        res.status(500).send({ message: 'Failed to create donation campaign' });
+      }
+    });
+
+    app.get('/donation-campaign', async (req, res) => {
+      try {
+        const campaign = await donationcampaignsCollection.find().toArray();
+        res.send(campaign);
+      }
+      catch (error) {
+        res.status(500).send({ message: "Error fetching petlist" });
+      }
+    });
+
+
+    // Get donation campaign details by ID
+    app.get('/donation-campaign/:id', async (req, res) => {
+      const id = req.params.id;
+      const campaign = await donationcampaignsCollection.findOne({ _id: new ObjectId(id) });
+      res.send(campaign);
+    });
+
+    // Create a Payment Intent
+    app.post('/create-payment-intent', async (req, res) => {
+      const { amount } = req.body;
+
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: 'bdt',
+          payment_method_types: ['card'],
+        });
+
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        console.error("Error creating payment intent:", error);
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+
+
+
+
+    // Record a donation
+    app.post('/donations', async (req, res) => {
+      const donation = {
+        campaignId: req.body.campaignId,
+        donorEmail: req.body.donorEmail,
+        amount: parseFloat(req.body.amount),
+        petImage: req.body.petImage,
+        petName: req.body.petName,
+        donatedAt: new Date()
+      };
+
+      const result = await donationCollection.insertOne(donation);
+
+
+      await donationcampaignsCollection.updateOne(
+        { _id: new ObjectId(req.body.campaignId) },
+        { $inc: { donatedAmount: donation.amount } }
+      );
+
+      res.send(result);
+    });
+
+
+    // get donations
+    app.get('/donation-campaigns', async (req, res) => {
+      const email = req.query.email;
+      if (!email) return res.status(400).send({ error: 'Email is required' });
+
+      try {
+        const campaigns = await donationcampaignsCollection.find({ userEmail: email }).toArray();
+        res.send(campaigns);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to fetch donation campaigns' });
+      }
+    });
+
+
+    // GET /donators/:campaignId
+    app.get('/donations/:campaignId', async (req, res) => {
+      const { campaignId } = req.params;
+
+      try {
+        const donations = await donationCollection
+          .find({ campaignId: campaignId })
+          .project({ donorEmail: 1, amount: 1, _id: 0 })
+          .toArray();
+
+        res.send(donations);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to fetch donators' });
+      }
+    });
+
+
+
+    // for edit donation page
+    app.get('/donation-campaigns/:id', async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const campaign = await donationcampaignsCollection.findOne({ _id: new ObjectId(id) });
+        res.send(campaign);
+      } catch (err) {
+        res.status(500).send({ error: 'Failed to fetch donation campaign' });
+      }
+    });
+    // edit amount and pause condition 
+    app.patch('/donation-campaigns/:id', async (req, res) => {
+      const { id } = req.params;
+      const { maxAmount, paused } = req.body;
+
+      try {
+        const result = await donationcampaignsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { maxAmount, paused } }
+        );
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to update donation campaign' });
+      }
+    });
+
+
+    app.get('/donations', async (req, res) => {
+      const email = req.query.email;
+      try {
+        const donations = await donationCollection.find({ donorEmail: email }).toArray();
+        res.send(donations);
+      } catch (err) {
+        console.error('Error fetching donations:', err);
+        res.status(500).send({ message: 'Server error' });
+      }
+    });
+
+
+    app.get('/adopt', async (req, res) => {
+      const { ownerEmail } = req.query;
+      try {
+        const requests = await adoptCollection.find({ ownerEmail }).toArray();
+        res.send(requests);
+      } catch (error) {
+        res.status(500).send({ message: 'Error fetching adoption requests' });
+      }
+    });
+
+    app.patch('/adopt/:id', async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      try {
+        const result = await adoptCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+
+        if (result.modifiedCount === 1) {
+          res.send({ success: true, message: "Status updated successfully" });
+        } else {
+          res.status(404).send({ success: false, message: "Adoption request not found or already up-to-date" });
+        }
+      } catch (error) {
+        console.error("Error updating adoption status:", error);
+        res.status(500).send({ success: false, message: "Internal Server Error" });
+      }
+    });
+
+    // all users
+
+    app.post('/users', async (req, res) => {
+      const { email, name, image } = req.body;
+      const existingUser = await userCollection.findOne({ email });
+
+      if (existingUser) {
+        return res.send({ message: "User already exists" });
+      }
+
+      const newUser = {
+        name,
+        email,
+        image: image || null,
+        role: 'user',
+        createdAt: new Date()
+      };
+
+      const result = await userCollection.insertOne(newUser);
+      res.send(result);
+    });
+
+
+    app.get('/users', async (req, res) => {
+      try {
+        const user = await userCollection.find().toArray();
+        res.send(user);
+      }
+      catch (error) {
+        res.status(500).send({ success: false, message: "Can't get users" });
+      }
+    });
+
+    app.put('/users/admin/:id', async (req, res) => {
+      const id = req.params.id;
+      const result = await userCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role: "admin" } }
+      );
+      res.send(result);
+    });
+
+
+    // Get all campaigns
+    app.get('/donationcampaigns', async (req, res) => {
+      const result = await donationcampaignsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Delete a campaign
+    app.delete('/donationcampaigns/:id', async (req, res) => {
+      const id = req.params.id;
+      const result = await donationcampaignsCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    // Update a donation campaign
+    app.patch('/donationcampaigns/:id', async (req, res) => {
+      const id = req.params.id;
+      const {
+        petName,
+        petImage,
+        maxAmount,
+        deadline,
+        userEmail,
+        donatedAmount,
+        description,
+        status,
+      } = req.body;
+
+      const updateDoc = { $set: {} };
+      if (petName) updateDoc.$set.petName = petName;
+      if (petImage) updateDoc.$set.petImage = petImage;
+      if (maxAmount) updateDoc.$set.maxAmount = maxAmount;
+      if (deadline) updateDoc.$set.deadline = deadline;
+      if (userEmail) updateDoc.$set.userEmail = userEmail;
+      if (donatedAmount) updateDoc.$set.donatedAmount = donatedAmount;
+      if (description) updateDoc.$set.description = description;
+      if (status) updateDoc.$set.status = status;
+
+      const result = await donationcampaignsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        updateDoc
+      );
+      res.send(result);
+    });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // Send a ping to confirm a successful connection
+    await client.db("admin").command({ ping: 1 });
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  } finally {
+    // Ensures that the client will close when you finish/error
+    // await client.close();
+  }
+}
+run().catch(console.dir);
+
+
+
+app.get('/', (req, res) => {
+  res.send('Welcome to the Pet Haven server side');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
