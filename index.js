@@ -1,12 +1,22 @@
 const express = require('express');
 const cors = require('cors');
+const axios = require("axios");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const PORT = process.env.PORT || 5000;
+const endpoint = "https://sandbox.sslcommerz.com/gwprocess/v4/api.php"
 
-app.use(cors());
+const store_id = process.env.SSL_STORE_ID;
+const store_passwd = process.env.SSL_STORE_PASS;
+
+
+// app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_URL || "http://localhost:5173"
+}));
+app.use(express.urlencoded({ extended: true }))
 app.use(express.json());
 
 
@@ -22,10 +32,14 @@ const client = new MongoClient(uri, {
   }
 });
 
+
+
+
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     // code starts here
 
@@ -35,6 +49,127 @@ async function run() {
     const donationcampaignsCollection = database.collection('donationcampaigns');
     const donationCollection = database.collection('donation');
     const userCollection = database.collection('user');
+    const paymentCollection = database.collection('payment');
+
+
+    app.post("/api/payment", async (req, res) => {
+
+      try {
+
+        const { amount, name, email, phone } = req.body;
+
+        // basic validation
+        if (!amount || Number(amount) <= 0) {
+          console.log("Invalid amount:", amount);
+          return res.status(400).json({ error: "Invalid amount" });
+        }
+
+        // Create a unique transaction ID. Save it to DB if you want to track later.
+        const tran_id = new ObjectId().toString();
+
+        // Build the payload for SSLCOMMERZ. Keep required fields.
+        const paymentData = {
+          store_id,
+          store_passwd,
+          total_amount: amount,
+          currency: "BDT",
+          tran_id,
+          success_url: `http://localhost:5000/api/payment/success`,
+          fail_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/fail`,
+          cancel_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/cancel`,
+          ipn_url: `http://localhost:5173/ipn-success-payment`,
+          emi_option: 0,
+          cus_name: name || "Anonymous Donor",
+          cus_email: email || "donor@example.com",
+          cus_phone: "01707226784",
+          cus_add1: "Dhaka",
+          cus_city: "Dhaka",
+          cus_country: "Bangladesh",
+          shipping_method: "NO",
+          product_name: "Donation",
+          product_category: "Charity",
+          product_profile: "non-physical-goods",
+        };
+
+
+        // console.log("Payment payload:", paymentData);
+
+        // Call SSLCOMMERZ
+        const sslResponse = await axios.post(endpoint, paymentData, {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+
+        });
+
+        // console.log("SSLCOMMERZ response data:", sslResponse.data);
+
+        // Check GatewayPageURL
+        if (sslResponse.data && sslResponse.data.GatewayPageURL) {
+          // console.log("GatewayPageURL found:", sslResponse.data.GatewayPageURL);
+
+          await paymentCollection.insertOne({
+            tran_id,
+            amount,
+            name,
+            email,
+            phone,
+            status: "pending",
+            createdAt: new Date(),
+          })
+
+          return res.json({ url: sslResponse.data.GatewayPageURL, tran_id });
+        } else {
+          console.error("No GatewayPageURL in SSLCOMMERZ response", sslResponse.data);
+          return res.status(500).json({ error: "No GatewayPageURL", details: sslResponse.data });
+        }
+      } catch (err) {
+        console.error("Error creating payment session:", err.response?.data || err.message);
+        // Return helpful debug info (do not expose secrets)
+        return res.status(500).json({ error: "payment creation failed", details: err.response?.data || err.message });
+      }
+    });
+
+
+
+    app.post('/api/payment/success', async (req, res) => {
+      const paymentSuccess = req.body;
+
+      console.log("Payment success callback:", paymentSuccess);
+
+      const { tran_id, val_id } = paymentSuccess;
+
+      if (!tran_id) {
+        return res.status(400).send("Missing tran_id");
+      }
+
+      // Update DB
+      await paymentCollection.updateOne(
+        { tran_id },
+        { $set: { status: "success", val_id, updatedAt: new Date() } }
+      );
+
+      // Redirect user to frontend success page
+      return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/success`);
+    });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     app.get('/pet-list', async (req, res) => {
       try {
@@ -184,6 +319,23 @@ async function run() {
     });
 
 
+    app.delete("/adopt-request/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await adoptCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: "Request not found" });
+        }
+
+        res.send({ success: true, message: "Request deleted successfully" });
+      } catch (error) {
+        console.error("Error deleting request:", error);
+        res.status(500).send({ success: false, message: "Server error" });
+      }
+    });
+
+
 
     app.post('/donation-campaign', async (req, res) => {
       try {
@@ -215,23 +367,7 @@ async function run() {
       res.send(campaign);
     });
 
-    // Create a Payment Intent
-    app.post('/create-payment-intent', async (req, res) => {
-      const { amount } = req.body;
-
-      try {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: amount,
-          currency: 'bdt',
-          payment_method_types: ['card'],
-        });
-
-        res.send({ clientSecret: paymentIntent.client_secret });
-      } catch (error) {
-        console.error("Error creating payment intent:", error);
-        res.status(500).send({ error: error.message });
-      }
-    });
+    
 
 
 
@@ -366,7 +502,7 @@ async function run() {
     // all users
 
     app.post('/users', async (req, res) => {
-      const { email, name, image } = req.body;
+      const { email, name, image, phone, city, country } = req.body;
       const existingUser = await userCollection.findOne({ email });
 
       if (existingUser) {
@@ -376,6 +512,9 @@ async function run() {
       const newUser = {
         name,
         email,
+        phone,
+        city,
+        country,
         image: image || null,
         role: 'user',
         createdAt: new Date()
@@ -477,8 +616,8 @@ async function run() {
 
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
