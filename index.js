@@ -49,14 +49,14 @@ async function run() {
     const donationcampaignsCollection = database.collection('donationcampaigns');
     const donationCollection = database.collection('donation');
     const userCollection = database.collection('user');
-    const paymentCollection = database.collection('payment');
+
 
 
     app.post("/api/payment", async (req, res) => {
 
       try {
 
-        const { amount, name, email, phone } = req.body;
+        const { amount, name, email, phone, campaignId, petImage, petName } = req.body;
 
         // basic validation
         if (!amount || Number(amount) <= 0) {
@@ -76,7 +76,7 @@ async function run() {
           tran_id,
           success_url: `http://localhost:5000/api/payment/success`,
           fail_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/fail`,
-          cancel_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/cancel`,
+          cancel_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/donationcampaigns`,
           ipn_url: `http://localhost:5173/ipn-success-payment`,
           emi_option: 0,
           cus_name: name || "Anonymous Donor",
@@ -106,12 +106,15 @@ async function run() {
         if (sslResponse.data && sslResponse.data.GatewayPageURL) {
           // console.log("GatewayPageURL found:", sslResponse.data.GatewayPageURL);
 
-          await paymentCollection.insertOne({
+          await donationCollection.insertOne({
             tran_id,
             amount,
             name,
             email,
             phone,
+            campaignId,
+            petImage,
+            petName,
             status: "pending",
             createdAt: new Date(),
           })
@@ -130,29 +133,105 @@ async function run() {
 
 
 
+
+
     app.post('/api/payment/success', async (req, res) => {
-      const paymentSuccess = req.body;
+      const { tran_id, val_id } = req.body;
 
-      console.log("Payment success callback:", paymentSuccess);
 
-      const { tran_id, val_id } = paymentSuccess;
 
-      if (!tran_id) {
-        return res.status(400).send("Missing tran_id");
+      if (!tran_id || !val_id) {
+        return res.status(400).send("Missing tran_id or val_id");
       }
 
-      // Update DB
-      await paymentCollection.updateOne(
-        { tran_id },
-        { $set: { status: "success", val_id, updatedAt: new Date() } }
-      );
+      try {
+        // Validate with SSLCommerz
+        const validationRes = await axios.get(
+          `https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php`,
+          {
+            params: {
+              val_id,
+              store_id: process.env.SSL_STORE_ID,
+              store_passwd: process.env.SSL_STORE_PASS,
+              format: "json",
+            },
+          }
+        );
 
-      // Redirect user to frontend success page
-      return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/success`);
+        const validation = validationRes.data;
+
+
+        if (validation.status === "VALID" || validation.status === "VALIDATED") {
+          // 1. Update the donation transaction
+          const donation = await donationCollection.findOneAndUpdate(
+            { tran_id },
+            {
+              $set: {
+                status: "success",
+                val_id,
+
+                card_type: validation.card_type,
+
+                updatedAt: new Date(),
+              }
+            },
+            { returnDocument: "after" }
+          );
+
+
+
+
+
+          // 2. Increment the donatedAmount in the related campaign
+          await donationcampaignsCollection.updateOne(
+            { _id: new ObjectId(donation.campaignId) },
+            { $inc: { donatedAmount: parseFloat(donation.amount) } }
+          );
+
+
+          // Redirect user to frontend success page
+          return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/success`);
+        }
+        else {
+          // If payment failed or invalid
+          await donationCollection.updateOne(
+            { tran_id },
+            { $set: { status: "failed", updatedAt: new Date() } }
+          );
+          return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/fail`);
+        }
+      } catch (err) {
+        console.error("Validation error:", err.message);
+        return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/fail`);
+      }
     });
 
 
 
+
+
+
+    //  app.post('/donations', async (req, res) => {
+    //       const donation = {
+    //         campaignId: req.body.campaignId,
+    //         donorName: req.body.donorName,
+    //         donorEmail: req.body.donorEmail,
+    //         amount: parseFloat(req.body.amount),
+    //         petImage: req.body.petImage,
+    //         petName: req.body.petName,
+    //         donatedAt: new Date()
+    //       };
+
+    //       const result = await donationCollection.insertOne(donation);
+
+
+    //       await donationcampaignsCollection.updateOne(
+    //         { _id: new ObjectId(req.body.campaignId) },
+    //         { $inc: { donatedAmount: donation.amount } }
+    //       );
+
+    //       res.send(result);
+    //     });
 
 
 
@@ -367,33 +446,34 @@ async function run() {
       res.send(campaign);
     });
 
-    
+
 
 
 
 
 
     // Record a donation
-    app.post('/donations', async (req, res) => {
-      const donation = {
-        campaignId: req.body.campaignId,
-        donorEmail: req.body.donorEmail,
-        amount: parseFloat(req.body.amount),
-        petImage: req.body.petImage,
-        petName: req.body.petName,
-        donatedAt: new Date()
-      };
+    // app.post('/donations', async (req, res) => {
+    //   const donation = {
+    //     campaignId: req.body.campaignId,
+    //     donorName: req.body.donorName,
+    //     donorEmail: req.body.donorEmail,
+    //     amount: parseFloat(req.body.amount),
+    //     petImage: req.body.petImage,
+    //     petName: req.body.petName,
+    //     donatedAt: new Date()
+    //   };
 
-      const result = await donationCollection.insertOne(donation);
+    //   const result = await donationCollection.insertOne(donation);
 
 
-      await donationcampaignsCollection.updateOne(
-        { _id: new ObjectId(req.body.campaignId) },
-        { $inc: { donatedAmount: donation.amount } }
-      );
+    //   await donationcampaignsCollection.updateOne(
+    //     { _id: new ObjectId(req.body.campaignId) },
+    //     { $inc: { donatedAmount: donation.amount } }
+    //   );
 
-      res.send(result);
-    });
+    //   res.send(result);
+    // });
 
 
     // get donations
@@ -417,7 +497,7 @@ async function run() {
       try {
         const donations = await donationCollection
           .find({ campaignId: campaignId })
-          .project({ donorEmail: 1, amount: 1, _id: 0 })
+          .project({ email: 1, amount: 1, _id: 0 })
           .toArray();
 
         res.send(donations);
@@ -459,7 +539,7 @@ async function run() {
     app.get('/donations', async (req, res) => {
       const email = req.query.email;
       try {
-        const donations = await donationCollection.find({ donorEmail: email }).toArray();
+        const donations = await donationCollection.find({ email: email }).toArray();
         res.send(donations);
       } catch (err) {
         console.error('Error fetching donations:', err);
@@ -545,6 +625,19 @@ async function run() {
     });
 
 
+    // demote user from admin
+    app.put("/users/remove-admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: { role: "user" }
+      };
+      const result = await userCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+
+
     // Get all campaigns
     app.get('/donationcampaigns', async (req, res) => {
       const result = await donationcampaignsCollection.find().toArray();
@@ -567,7 +660,7 @@ async function run() {
         maxAmount,
         deadline,
         userEmail,
-        donatedAmount,
+        
         description,
         status,
       } = req.body;
@@ -578,7 +671,7 @@ async function run() {
       if (maxAmount) updateDoc.$set.maxAmount = maxAmount;
       if (deadline) updateDoc.$set.deadline = deadline;
       if (userEmail) updateDoc.$set.userEmail = userEmail;
-      if (donatedAmount) updateDoc.$set.donatedAmount = donatedAmount;
+      
       if (description) updateDoc.$set.description = description;
       if (status) updateDoc.$set.status = status;
 
