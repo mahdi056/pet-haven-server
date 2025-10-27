@@ -3,7 +3,6 @@ const cors = require('cors');
 const axios = require("axios");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const PORT = process.env.PORT || 5000;
 const endpoint = "https://sandbox.sslcommerz.com/gwprocess/v4/api.php"
@@ -12,7 +11,7 @@ const store_id = process.env.SSL_STORE_ID;
 const store_passwd = process.env.SSL_STORE_PASS;
 
 
-// app.use(cors());
+
 app.use(cors({
   origin: process.env.CLIENT_URL || "http://localhost:5173"
 }));
@@ -23,7 +22,7 @@ app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.yhwb0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -41,7 +40,7 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
 
-    // code starts here
+    
 
     const database = client.db('pet-haven');
     const petlistCollection = database.collection('pet-list');
@@ -58,16 +57,16 @@ async function run() {
 
         const { amount, name, email, phone, campaignId, petImage, petName } = req.body;
 
-        // basic validation
+        
         if (!amount || Number(amount) <= 0) {
           console.log("Invalid amount:", amount);
           return res.status(400).json({ error: "Invalid amount" });
         }
 
-        // Create a unique transaction ID. Save it to DB if you want to track later.
+      
         const tran_id = new ObjectId().toString();
 
-        // Build the payload for SSLCOMMERZ. Keep required fields.
+       
         const paymentData = {
           store_id,
           store_passwd,
@@ -94,7 +93,7 @@ async function run() {
 
         // console.log("Payment payload:", paymentData);
 
-        // Call SSLCOMMERZ
+      
         const sslResponse = await axios.post(endpoint, paymentData, {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
 
@@ -102,7 +101,7 @@ async function run() {
 
         // console.log("SSLCOMMERZ response data:", sslResponse.data);
 
-        // Check GatewayPageURL
+       
         if (sslResponse.data && sslResponse.data.GatewayPageURL) {
           // console.log("GatewayPageURL found:", sslResponse.data.GatewayPageURL);
 
@@ -126,7 +125,7 @@ async function run() {
         }
       } catch (err) {
         console.error("Error creating payment session:", err.response?.data || err.message);
-        // Return helpful debug info (do not expose secrets)
+        
         return res.status(500).json({ error: "payment creation failed", details: err.response?.data || err.message });
       }
     });
@@ -145,7 +144,7 @@ async function run() {
       }
 
       try {
-        // Validate with SSLCommerz
+        
         const validationRes = await axios.get(
           `https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php`,
           {
@@ -162,7 +161,7 @@ async function run() {
 
 
         if (validation.status === "VALID" || validation.status === "VALIDATED") {
-          // 1. Update the donation transaction
+          
           const donation = await donationCollection.findOneAndUpdate(
             { tran_id },
             {
@@ -182,18 +181,18 @@ async function run() {
 
 
 
-          // 2. Increment the donatedAmount in the related campaign
+         
           await donationcampaignsCollection.updateOne(
             { _id: new ObjectId(donation.campaignId) },
             { $inc: { donatedAmount: parseFloat(donation.amount) } }
           );
 
 
-          // Redirect user to frontend success page
+         
           return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/success`);
         }
         else {
-          // If payment failed or invalid
+         
           await donationCollection.updateOne(
             { tran_id },
             { $set: { status: "failed", updatedAt: new Date() } }
@@ -205,48 +204,6 @@ async function run() {
         return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/fail`);
       }
     });
-
-
-
-
-
-
-    //  app.post('/donations', async (req, res) => {
-    //       const donation = {
-    //         campaignId: req.body.campaignId,
-    //         donorName: req.body.donorName,
-    //         donorEmail: req.body.donorEmail,
-    //         amount: parseFloat(req.body.amount),
-    //         petImage: req.body.petImage,
-    //         petName: req.body.petName,
-    //         donatedAt: new Date()
-    //       };
-
-    //       const result = await donationCollection.insertOne(donation);
-
-
-    //       await donationcampaignsCollection.updateOne(
-    //         { _id: new ObjectId(req.body.campaignId) },
-    //         { $inc: { donatedAmount: donation.amount } }
-    //       );
-
-    //       res.send(result);
-    //     });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -339,6 +296,7 @@ async function run() {
         res.status(500).json({ message: 'Internal server error' });
       }
     });
+    
     // get all pets for admin
     app.get('/petlist', async (req, res) => {
       try {
@@ -379,7 +337,7 @@ async function run() {
 
 
 
-    // DELETE: Remove a pet by ID
+    // remove a pet 
     app.delete('/pet-list/:id', async (req, res) => {
       const { id } = req.params;
 
@@ -449,31 +407,6 @@ async function run() {
 
 
 
-
-
-
-    // Record a donation
-    // app.post('/donations', async (req, res) => {
-    //   const donation = {
-    //     campaignId: req.body.campaignId,
-    //     donorName: req.body.donorName,
-    //     donorEmail: req.body.donorEmail,
-    //     amount: parseFloat(req.body.amount),
-    //     petImage: req.body.petImage,
-    //     petName: req.body.petName,
-    //     donatedAt: new Date()
-    //   };
-
-    //   const result = await donationCollection.insertOne(donation);
-
-
-    //   await donationcampaignsCollection.updateOne(
-    //     { _id: new ObjectId(req.body.campaignId) },
-    //     { $inc: { donatedAmount: donation.amount } }
-    //   );
-
-    //   res.send(result);
-    // });
 
 
     // get donations
@@ -638,20 +571,20 @@ async function run() {
 
 
 
-    // Get all campaigns
+    
     app.get('/donationcampaigns', async (req, res) => {
       const result = await donationcampaignsCollection.find().toArray();
       res.send(result);
     });
 
-    // Delete a campaign
+    
     app.delete('/donationcampaigns/:id', async (req, res) => {
       const id = req.params.id;
       const result = await donationcampaignsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
-    // Update a donation campaign
+   
     app.patch('/donationcampaigns/:id', async (req, res) => {
       const id = req.params.id;
       const {
