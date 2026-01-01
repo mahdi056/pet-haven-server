@@ -48,6 +48,7 @@ async function run() {
     const donationcampaignsCollection = database.collection('donationcampaigns');
     const donationCollection = database.collection('donation');
     const userCollection = database.collection('user');
+    const productCollection = database.collection('products');
 
 
 
@@ -515,7 +516,7 @@ async function run() {
     // all users
 
     app.post('/users', async (req, res) => {
-      const { email, name, image, phone, city, country } = req.body;
+      const { email, name, image, phone, city } = req.body;
       const existingUser = await userCollection.findOne({ email });
 
       if (existingUser) {
@@ -527,7 +528,6 @@ async function run() {
         email,
         phone,
         city,
-        country,
         image: image || null,
         role: 'user',
         createdAt: new Date()
@@ -616,7 +616,65 @@ async function run() {
     });
 
 
+    app.post("/products", async (req, res) => {
+  try {
+    const product = req.body;
 
+    const newProduct = {
+      ...product,
+      approve: "no",
+      createdAt: new Date(),
+    };
+
+    const result = await productCollection.insertOne(newProduct);
+
+    res.send(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({
+      success: false,
+      message: "Failed to add product",
+    });
+  }
+});
+
+app.get("/products", async (req, res) => {
+  const result = await productCollection.find().toArray();
+  res.send(result);
+});
+
+app.patch("/products/approve/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await productCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { approve: "yes" } }
+  );
+
+  res.send(result);
+});
+
+app.delete("/products/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await productCollection.deleteOne({
+    _id: new ObjectId(id),
+  });
+
+  res.send(result);
+});
+
+app.get("/products/approved", async (req, res) => {
+  const result = await productCollection
+    .find({ approve: "yes" })
+    .toArray();
+
+  res.send(result);
+});
+
+
+
+    
 
 
 
