@@ -638,6 +638,8 @@ async function run() {
   }
 });
 
+// Get all products for Admin
+
 app.get("/products", async (req, res) => {
   const result = await productCollection.find().toArray();
   res.send(result);
@@ -648,11 +650,23 @@ app.patch("/products/approve/:id", async (req, res) => {
 
   const result = await productCollection.updateOne(
     { _id: new ObjectId(id) },
-    { $set: { approve: "yes" } }
+    { $set: { approve: "Accepted" } }
   );
 
   res.send(result);
 });
+
+app.patch("/products/reject/:id", async (req, res) => {
+  const id = req.params.id;
+
+  const result = await productCollection.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: { approve: "Rejected" } }
+  );
+
+  res.send(result);
+});
+
 
 app.delete("/products/:id", async (req, res) => {
   const id = req.params.id;
@@ -666,11 +680,26 @@ app.delete("/products/:id", async (req, res) => {
 
 app.get("/products/approved", async (req, res) => {
   const result = await productCollection
-    .find({ approve: "yes" })
+    .find({ approve: "Accepted" })
     .toArray();
 
   res.send(result);
 });
+
+// Get all products for user
+
+app.get("/products/user/:email", async (req, res) => {
+  const email = req.params.email;
+
+  const result = await productCollection
+    .find({ adderEmail: email })
+    .toArray();
+
+  res.send(result);
+});
+
+
+
 
 
 
