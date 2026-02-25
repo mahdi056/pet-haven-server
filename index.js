@@ -40,7 +40,7 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
 
-    
+
 
     const database = client.db('pet-haven');
     const petlistCollection = database.collection('pet-list');
@@ -49,6 +49,8 @@ async function run() {
     const donationCollection = database.collection('donation');
     const userCollection = database.collection('user');
     const productCollection = database.collection('products');
+    const cartCollection = database.collection('cart');
+    const orderCollection = database.collection('order');
 
 
 
@@ -58,16 +60,16 @@ async function run() {
 
         const { amount, name, email, phone, campaignId, petImage, petName } = req.body;
 
-        
+
         if (!amount || Number(amount) <= 0) {
           console.log("Invalid amount:", amount);
           return res.status(400).json({ error: "Invalid amount" });
         }
 
-      
+
         const tran_id = new ObjectId().toString();
 
-       
+
         const paymentData = {
           store_id,
           store_passwd,
@@ -94,7 +96,7 @@ async function run() {
 
         // console.log("Payment payload:", paymentData);
 
-      
+
         const sslResponse = await axios.post(endpoint, paymentData, {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
 
@@ -102,7 +104,7 @@ async function run() {
 
         // console.log("SSLCOMMERZ response data:", sslResponse.data);
 
-       
+
         if (sslResponse.data && sslResponse.data.GatewayPageURL) {
           // console.log("GatewayPageURL found:", sslResponse.data.GatewayPageURL);
 
@@ -126,7 +128,7 @@ async function run() {
         }
       } catch (err) {
         console.error("Error creating payment session:", err.response?.data || err.message);
-        
+
         return res.status(500).json({ error: "payment creation failed", details: err.response?.data || err.message });
       }
     });
@@ -145,7 +147,7 @@ async function run() {
       }
 
       try {
-        
+
         const validationRes = await axios.get(
           `https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php`,
           {
@@ -162,7 +164,7 @@ async function run() {
 
 
         if (validation.status === "VALID" || validation.status === "VALIDATED") {
-          
+
           const donation = await donationCollection.findOneAndUpdate(
             { tran_id },
             {
@@ -182,18 +184,18 @@ async function run() {
 
 
 
-         
+
           await donationcampaignsCollection.updateOne(
             { _id: new ObjectId(donation.campaignId) },
             { $inc: { donatedAmount: parseFloat(donation.amount) } }
           );
 
 
-         
+
           return res.redirect(`${process.env.CLIENT_URL || "http://localhost:5173"}/success`);
         }
         else {
-         
+
           await donationCollection.updateOne(
             { tran_id },
             { $set: { status: "failed", updatedAt: new Date() } }
@@ -210,7 +212,9 @@ async function run() {
 
     app.get('/pet-list', async (req, res) => {
       try {
-        const petlist = await petlistCollection.find().toArray();
+        const petlist = await petlistCollection.find(
+          { approve: "Accepted" }
+        ).toArray();
 
         res.send(petlist);
       }
@@ -260,7 +264,13 @@ async function run() {
     app.post('/pet-list', async (req, res) => {
       try {
         const petData = req.body;
-        const result = await petlistCollection.insertOne(petData);
+
+        const newPetdata = {
+          ...petData,
+          approve: "No",
+        }
+
+        const result = await petlistCollection.insertOne(newPetdata);
 
         res.status(201).send({
           message: "Pet added successfully",
@@ -297,7 +307,7 @@ async function run() {
         res.status(500).json({ message: 'Internal server error' });
       }
     });
-    
+
     // get all pets for admin
     app.get('/petlist', async (req, res) => {
       try {
@@ -378,8 +388,13 @@ async function run() {
     app.post('/donation-campaign', async (req, res) => {
       try {
         const campaign = req.body;
-        campaign.createdAt = new Date();
-        const result = await donationcampaignsCollection.insertOne(campaign);
+
+        const newCompaign = {
+          ...campaign,
+          approve: "No"
+        }
+        const result = await donationcampaignsCollection.insertOne(newCompaign);
+
         res.status(201).send({ message: 'Donation campaign created', insertedId: result.insertedId });
       } catch (error) {
         console.error('Error creating campaign:', error);
@@ -389,7 +404,9 @@ async function run() {
 
     app.get('/donation-campaign', async (req, res) => {
       try {
-        const campaign = await donationcampaignsCollection.find().toArray();
+        const campaign = await donationcampaignsCollection.find(
+          { approve: "Accepted" }
+        ).toArray();
         res.send(campaign);
       }
       catch (error) {
@@ -571,20 +588,20 @@ async function run() {
 
 
 
-    
+
     app.get('/donationcampaigns', async (req, res) => {
       const result = await donationcampaignsCollection.find().toArray();
       res.send(result);
     });
 
-    
+
     app.delete('/donationcampaigns/:id', async (req, res) => {
       const id = req.params.id;
       const result = await donationcampaignsCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
 
-   
+
     app.patch('/donationcampaigns/:id', async (req, res) => {
       const id = req.params.id;
       const {
@@ -593,7 +610,7 @@ async function run() {
         maxAmount,
         deadline,
         userEmail,
-        
+
         description,
         status,
       } = req.body;
@@ -604,7 +621,7 @@ async function run() {
       if (maxAmount) updateDoc.$set.maxAmount = maxAmount;
       if (deadline) updateDoc.$set.deadline = deadline;
       if (userEmail) updateDoc.$set.userEmail = userEmail;
-      
+
       if (description) updateDoc.$set.description = description;
       if (status) updateDoc.$set.status = status;
 
@@ -617,93 +634,288 @@ async function run() {
 
 
     app.post("/products", async (req, res) => {
+      try {
+        const product = req.body;
+
+        const newProduct = {
+          ...product,
+          approve: "no",
+          createdAt: new Date(),
+        };
+
+        const result = await productCollection.insertOne(newProduct);
+
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({
+          success: false,
+          message: "Failed to add product",
+        });
+      }
+    });
+
+    // Get all products for Admin
+
+    app.get("/products", async (req, res) => {
+      const result = await productCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch("/products/approve/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await productCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { approve: "Accepted" } }
+      );
+
+      res.send(result);
+    });
+
+    app.patch("/products/reject/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await productCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { approve: "Rejected" } }
+      );
+
+      res.send(result);
+    });
+
+
+    app.delete("/products/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await productCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      res.send(result);
+    });
+
+    app.get("/products/approved", async (req, res) => {
+      const result = await productCollection
+        .find({ approve: "Accepted" })
+        .toArray();
+
+      res.send(result);
+    });
+
+    // Get all products for user
+
+    app.get("/products/user/:email", async (req, res) => {
+      const email = req.params.email;
+
+      const result = await productCollection
+        .find({ adderEmail: email })
+        .toArray();
+
+      res.send(result);
+    });
+
+
+    // POST add to cart
+    app.post("/cart", async (req, res) => {
+      const cartItem = req.body;
+
+
+
+      const result = await cartCollection.insertOne(cartItem);
+      res.send(result);
+    });
+
+
+    // GET cart items by user email
+    app.get("/cart/:email", async (req, res) => {
+      const email = req.params.email;
+
+      const result = await cartCollection
+        .find({ userEmail: email })
+        .toArray();
+
+      res.send(result);
+    });
+
+    // app.post("/orders", async (req, res) => {
+    //   const orderData = req.body;
+
+    //   const result = await orderCollection.insertOne(orderData);
+
+    //   // clear user's cart
+    //   await cartCollection.deleteMany({
+    //     userEmail: orderData.buyerEmail,
+    //   });
+
+    //   res.send(result);
+    // });
+
+ app.post("/orders", async (req, res) => {
   try {
-    const product = req.body;
+    const orderData = req.body;
 
-    const newProduct = {
-      ...product,
-      approve: "no",
-      createdAt: new Date(),
-    };
+    // Reduce stock for each cart item
+    for (const item of orderData.items) {
+      const updateResult = await productCollection.updateOne(
+        {
+          _id: new ObjectId(item.productId),
+          stock: { $gt: "0" } 
+        },
+        [
+          {
+            $set: {
+              stock: {
+                $toString: { $subtract: [{ $toInt: "$stock" }, 1] }
+              }
+            }
+          }
+        ]
+      );
 
-    const result = await productCollection.insertOne(newProduct);
+      if (updateResult.modifiedCount === 0) {
+        return res.status(400).send({
+          message: 'Products are out of stock'
+        });
+      }
+    }
 
-    res.send(result);
+    // Save order
+    await orderCollection.insertOne({
+      ...orderData,
+      createdAt: new Date()
+    });
+
+    // Clear cart
+    await cartCollection.deleteMany({
+      userEmail: orderData.buyerEmail
+    });
+
+    res.send({ message: "Order placed successfully" });
   } catch (error) {
     console.error(error);
-    res.status(500).send({
-      success: false,
-      message: "Failed to add product",
-    });
+    res.status(500).send({ message: "Order failed" });
   }
 });
+    app.get("/seller-orders/:email", async (req, res) => {
+      const email = req.params.email;
 
-// Get all products for Admin
+      const result = await orderCollection
+        .find({
+          "items.adderEmail": email,
+        })
+        .sort({ orderDate: -1 })
+        .toArray();
 
-app.get("/products", async (req, res) => {
-  const result = await productCollection.find().toArray();
-  res.send(result);
-});
-
-app.patch("/products/approve/:id", async (req, res) => {
-  const id = req.params.id;
-
-  const result = await productCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: { approve: "Accepted" } }
-  );
-
-  res.send(result);
-});
-
-app.patch("/products/reject/:id", async (req, res) => {
-  const id = req.params.id;
-
-  const result = await productCollection.updateOne(
-    { _id: new ObjectId(id) },
-    { $set: { approve: "Rejected" } }
-  );
-
-  res.send(result);
-});
+      res.send(result);
+    });
 
 
-app.delete("/products/:id", async (req, res) => {
-  const id = req.params.id;
+    app.delete("/cart/:id", async (req, res) => {
+      const id = req.params.id;
 
-  const result = await productCollection.deleteOne({
-    _id: new ObjectId(id),
-  });
+      try {
+        const result = await cartCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
 
-  res.send(result);
-});
-
-app.get("/products/approved", async (req, res) => {
-  const result = await productCollection
-    .find({ approve: "Accepted" })
-    .toArray();
-
-  res.send(result);
-});
-
-// Get all products for user
-
-app.get("/products/user/:email", async (req, res) => {
-  const email = req.params.email;
-
-  const result = await productCollection
-    .find({ adderEmail: email })
-    .toArray();
-
-  res.send(result);
-});
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: "Failed to delete item" });
+      }
+    });
 
 
+    app.get('/petlist-admin', async (req, res) => {
+      try {
+        const pets = await petlistCollection.find().toArray();
+        res.send(pets);
+      } catch (err) {
+        res.status(500).send({ message: 'Failed to fetch pets' });
+      }
+    });
+
+    // Status changed for pet list
+    app.patch("/petlist-admin/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { approve } = req.body;
+
+        const result = await petlistCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { approve } }
+        );
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to update pet status" });
+      }
+    });
+
+
+    app.get('/donation-campaign-admin', async (req, res) => {
+      try {
+        const campaign = await donationcampaignsCollection.find().toArray();
+        res.send(campaign);
+      }
+      catch (error) {
+        res.status(500).send({ message: "Error fetching petlist" });
+      }
+    });
+
+    // Status changed for donation campaign
+
+    app.patch("/donation-campaign-admin/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { approve } = req.body;
+
+        const result = await donationcampaignsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { approve } }
+        );
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to update campaign status" });
+      }
+    });
+
+
+      app.delete("/order/:id", async (req, res) => {
+      const id = req.params.id;
+
+      try {
+        const result = await orderCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: "Failed to delete Order" });
+      }
+    });
 
 
 
 
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
