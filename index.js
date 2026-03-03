@@ -51,6 +51,7 @@ async function run() {
     const productCollection = database.collection('products');
     const cartCollection = database.collection('cart');
     const orderCollection = database.collection('order');
+    const orderhistoryCollection = database.collection('order-history')
 
 
 
@@ -738,18 +739,10 @@ async function run() {
       res.send(result);
     });
 
-    // app.post("/orders", async (req, res) => {
-    //   const orderData = req.body;
 
-    //   const result = await orderCollection.insertOne(orderData);
+  
 
-    //   // clear user's cart
-    //   await cartCollection.deleteMany({
-    //     userEmail: orderData.buyerEmail,
-    //   });
-
-    //   res.send(result);
-    // });
+   
 
  app.post("/orders", async (req, res) => {
   try {
@@ -786,6 +779,8 @@ async function run() {
       createdAt: new Date()
     });
 
+    await orderhistoryCollection.insertOne(orderData);
+
     // Clear cart
     await cartCollection.deleteMany({
       userEmail: orderData.buyerEmail
@@ -797,6 +792,7 @@ async function run() {
     res.status(500).send({ message: "Order failed" });
   }
 });
+
     app.get("/seller-orders/:email", async (req, res) => {
       const email = req.params.email;
 
@@ -895,6 +891,22 @@ async function run() {
         res.status(500).send({ error: "Failed to delete Order" });
       }
     });
+
+    // get all order history
+
+
+    app.get('/order-history', async (req,res) => {
+      try {
+        const orderHistory = await orderhistoryCollection.find({})
+        .sort({orderDate: -1})
+        .toArray();
+
+        res.send(orderHistory);
+      }
+      catch(error){
+        res.send(500).send({error: "Failed to fetch order history"})
+      }
+    })
 
 
 
