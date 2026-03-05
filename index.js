@@ -748,6 +748,20 @@ async function run() {
   try {
     const orderData = req.body;
 
+    for (const item of orderData.items) {
+      const product = await productCollection.findOne({ _id: new ObjectId(item.productId) });
+      const currentStock = parseInt(product?.stock || "0");
+      
+      // Count how many of this ID are in the order
+      const countInOrder = orderData.items.filter(i => i.productId === item.productId).length;
+
+      if (currentStock < countInOrder) {
+        return res.status(400).send({ message: `Not enough stock for ${product?.name}` });
+      }
+    }
+   
+
+
     // Reduce stock for each cart item
     for (const item of orderData.items) {
       const updateResult = await productCollection.updateOne(
@@ -906,7 +920,62 @@ async function run() {
       catch(error){
         res.send(500).send({error: "Failed to fetch order history"})
       }
-    })
+    });
+
+    // get all donations for admin
+
+    app.get('/donations-admin', async (req, res) => {
+      
+      try {
+        const donations = await donationCollection.find().toArray();
+        res.send(donations);
+      } catch (err) {
+        console.error('Error fetching donations:', err);
+        res.status(500).send({ message: 'Server error' });
+      }
+    });
+
+// get products for users who added
+
+    app.get("/my-products/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const result = await productCollection
+      .find({ adderEmail: email })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch products" });
+  }
+});
+
+app.delete("/products/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const result = await productCollection.deleteOne({
+      _id: new ObjectId(id)
+    });
+
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Delete failed" });
+  }
+});
+
+// Get cart items for a specific user
+app.get("/cart-user", async (req, res) => {
+  const email = req.query.email;
+  if (!email) {
+    return res.status(400).send({ message: "Email is required" });
+  }
+  const query = { userEmail: email };
+  const result = await cartCollection.find(query).toArray();
+  res.send(result);
+});
 
 
 
