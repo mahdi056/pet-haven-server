@@ -1036,7 +1036,7 @@ run().catch(console.dir);
 
 
 app.get('/', (req, res) => {
-  res.send('Welcome to the Pet Haven server side');
+  res.send('Hello, Welcome to the Pet Haven server side');
 });
 
 app.listen(PORT, () => {
