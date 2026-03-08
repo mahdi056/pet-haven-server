@@ -78,7 +78,7 @@ async function run() {
           total_amount: amount,
           currency: "BDT",
           tran_id,
-          success_url: `https://pet-haven-server-mu.vercel.app/api/payment/success`,
+          success_url: `https://pet-haven-server-two.vercel.app/api/payment/success`,
           fail_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/fail`,
           cancel_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/donationcampaigns`,
           ipn_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/ipn-success-payment`,
