@@ -14,6 +14,7 @@ const store_passwd = process.env.SSL_STORE_PASS;
 
 app.use(cors({
   origin: process.env.CLIENT_URL || "http://localhost:5173"
+
 }));
 app.use(express.urlencoded({ extended: true }))
 app.use(express.json());
@@ -77,10 +78,10 @@ async function run() {
           total_amount: amount,
           currency: "BDT",
           tran_id,
-          success_url: `http://localhost:5000/api/payment/success`,
+          success_url: `https://pet-haven-server-mu.vercel.app/api/payment/success`,
           fail_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/fail`,
           cancel_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/donationcampaigns`,
-          ipn_url: `http://localhost:5173/ipn-success-payment`,
+          ipn_url: `${process.env.CLIENT_URL || "http://localhost:5173"}/ipn-success-payment`,
           emi_option: 0,
           cus_name: name || "Anonymous Donor",
           cus_email: email || "donor@example.com",
@@ -392,7 +393,8 @@ async function run() {
 
         const newCompaign = {
           ...campaign,
-          approve: "No"
+          approve: "No",
+          status: "Active"
         }
         const result = await donationcampaignsCollection.insertOne(newCompaign);
 
@@ -752,7 +754,7 @@ async function run() {
       const product = await productCollection.findOne({ _id: new ObjectId(item.productId) });
       const currentStock = parseInt(product?.stock || "0");
       
-      // Count how many of this ID are in the order
+      
       const countInOrder = orderData.items.filter(i => i.productId === item.productId).length;
 
       if (currentStock < countInOrder) {
@@ -762,7 +764,7 @@ async function run() {
    
 
 
-    // Reduce stock for each cart item
+   
     for (const item of orderData.items) {
       const updateResult = await productCollection.updateOne(
         {
@@ -782,7 +784,7 @@ async function run() {
 
       if (updateResult.modifiedCount === 0) {
         return res.status(400).send({
-          message: 'Products are out of stock'
+          message: `${item.name} is out of stock`
         });
       }
     }
